@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 // 1. TYPES, SCORING ENGINE & AUTO-SUB LOGIC
 // ============================================================================
 
-export function detectHatTrickFromBalls(bowlerPlayerId, balls) {
+function detectHatTrickFromBalls(bowlerPlayerId, balls) {
   let consecutiveWickets = 0;
   for (const ball of balls) {
     if (ball.bowler_id !== bowlerPlayerId) {
@@ -30,7 +30,7 @@ export function detectHatTrickFromBalls(bowlerPlayerId, balls) {
   return false;
 }
 
-export function cricketOversToDecimal(oversBowled, ballsBowled) {
+function cricketOversToDecimal(oversBowled, ballsBowled) {
   if (typeof ballsBowled === 'number' && ballsBowled > 0) {
     return ballsBowled / 6;
   }
@@ -39,7 +39,7 @@ export function cricketOversToDecimal(oversBowled, ballsBowled) {
   return wholeOvers + partialBalls / 6;
 }
 
-export function calculatePlayerMatchPoints(perf, rules) {
+function calculatePlayerMatchPoints(perf, rules) {
   if (typeof perf.manual_override_points === 'number') {
     return perf.manual_override_points;
   }
@@ -129,7 +129,7 @@ function isValidPlayingXi(xi, constraints) {
   return true;
 }
 
-export function evaluateGameweekSquad(entries, constraints, activeChip, transferPenaltyPoints) {
+function evaluateGameweekSquad(entries, constraints, activeChip, transferPenaltyPoints) {
   const xiSet = new Set(entries.filter((e) => e.is_playing_xi).map((e) => e.player_id));
   const subbedOutIds = new Set();
   const subbedInIds = new Set();
@@ -207,7 +207,7 @@ export function evaluateGameweekSquad(entries, constraints, activeChip, transfer
 // 2. SETTINGS VALIDATION, RETENTION & AUCTION STATE MACHINE
 // ============================================================================
 
-export function validateLeagueSettings(settings) {
+function validateLeagueSettings(settings) {
   const errors = [];
 
   if (settings.playing_xi_size > settings.squad_size) {
@@ -275,7 +275,7 @@ export function validateLeagueSettings(settings) {
   return errors;
 }
 
-export function evaluateRetentionChoices(pastSquad, selections, settings) {
+function evaluateRetentionChoices(pastSquad, selections, settings) {
   const errors = [];
   const selectionMap = new Map();
   for (const sel of selections) {
@@ -408,7 +408,7 @@ export function evaluateRetentionChoices(pastSquad, selections, settings) {
   };
 }
 
-export function getNextBidAmount(currentBid, basePrice, increments) {
+function getNextBidAmount(currentBid, basePrice, increments) {
   if (currentBid === null) {
     return Number(basePrice.toFixed(2));
   }
@@ -427,7 +427,7 @@ export function getNextBidAmount(currentBid, basePrice, increments) {
   return Number((currentBid + step).toFixed(2));
 }
 
-export function canManagerAcquirePlayer(
+function canManagerAcquirePlayer(
   manager,
   player,
   bidAmount,
@@ -516,7 +516,7 @@ export function canManagerAcquirePlayer(
   return { allowed: true };
 }
 
-export function applyBid(
+function applyBid(
   state,
   memberId,
   amount,
@@ -640,7 +640,7 @@ function finalizePlayerSale(state, winnerMemberId, price, nowIso, usedRtm = fals
   };
 }
 
-export function handleRtmAction(state, action, settings, nowIso = new Date().toISOString()) {
+function handleRtmAction(state, action, settings, nowIso = new Date().toISOString()) {
   const player = state.current_player;
   if (!player || state.current_bid_amount === null || !state.current_highest_bidder_id) {
     return { ok: false, error: 'No active player for RTM.', nextState: state };
@@ -766,7 +766,7 @@ export function handleRtmAction(state, action, settings, nowIso = new Date().toI
   return { ok: false, error: 'Unsupported RTM action.', nextState: state };
 }
 
-export function syncAuctionIntoSnapshot(snapshot, nextAuction) {
+function syncAuctionIntoSnapshot(snapshot, nextAuction) {
   const nextPurses = { ...snapshot.purses_by_member };
   for (const [memberId, mgrState] of Object.entries(nextAuction.managers)) {
     nextPurses[memberId] = mgrState.purse_remaining;
@@ -3110,436 +3110,4 @@ function LeagueStandingsTable({ rows, availableGameweeks, onSelectTeam }) {
 
 // ============================================================================
 // 5. MAIN EXPORTED APP COMPONENT
-// ============================================================================
-
-export default function App() {
-  const [activeTab, setActiveTab] = useState('AUCTION');
-  const [snapshot, setSnapshot] = useState(FALLBACK_SNAPSHOT);
-  const [activeMemberId, setActiveMemberId] = useState('m1');
-  const [auctionError, setAuctionError] = useState(null);
-  const [syncStatus, setSyncStatus] = useState('Local / Standalone');
-
-  const channelRef = useRef(null);
-
-  const applyIncomingSnapshot = useCallback((remote) => {
-    if (!remote || !remote.updated_at) return;
-    setSnapshot((prev) => {
-      if (Date.parse(remote.updated_at) >= Date.parse(prev.updated_at)) {
-        return remote;
-      }
-      return prev;
-    });
-  }, []);
-
-  const commitSharedSnapshot = useCallback(async (next) => {
-    const stamped = {
-      ...next,
-      updated_at: new Date().toISOString(),
-    };
-    setSnapshot(stamped);
-    channelRef.current?.publishSnapshot(stamped);
-
-    try {
-      await pushRemoteLeagueSnapshot(stamped);
-      setSyncStatus('Synced (Shared API)');
-    } catch {
-      setSyncStatus('Local Tab Sync Only');
-    }
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-
-    const bc = createSharedLeagueChannel((remoteSnap) => {
-      if (active) {
-        applyIncomingSnapshot(remoteSnap);
-        setSyncStatus('Synced (Browser Tabs)');
-      }
-    });
-    channelRef.current = bc;
-
-    async function pollSharedState() {
-      try {
-        const data = await fetchRemoteLeagueSnapshot(FALLBACK_SNAPSHOT.league_id);
-        if (active) {
-          applyIncomingSnapshot(data);
-          setSyncStatus('Synced (Shared API)');
-        }
-      } catch {
-        if (active) {
-          setSyncStatus('Local / Standalone');
-        }
-      }
-    }
-
-    pollSharedState();
-    const interval = setInterval(pollSharedState, 1500);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-      bc.close();
-    };
-  }, [applyIncomingSnapshot]);
-
-  const settings = snapshot.settings;
-  const currentManager =
-    snapshot.managers.find((m) => m.member_id === activeMemberId) ?? snapshot.managers[0];
-  const currentPastRoster = snapshot.past_rosters_by_member[activeMemberId] ?? [];
-  const currentSquad = snapshot.squads_by_member[activeMemberId] ?? INITIAL_SQUAD;
-  const currentPurse = snapshot.purses_by_member[activeMemberId] ?? settings.starting_purse;
-  const currentFreeTransfers =
-    snapshot.free_transfers_by_member[activeMemberId] ?? settings.free_transfers_per_gw;
-
-  function handleAddManager(displayName, teamName) {
-    const newId = 'm' + (snapshot.managers.length + 1);
-    const nextManagers = [
-      ...snapshot.managers,
-      {
-        member_id: newId,
-        user_id: 'u' + (snapshot.managers.length + 1),
-        display_name: displayName,
-        team_name: teamName,
-        is_commissioner: false,
-      },
-    ];
-
-    const nextAuctionManagers = {
-      ...snapshot.auction.managers,
-      [newId]: {
-        member_id: newId,
-        team_name: teamName,
-        purse_remaining: settings.starting_purse,
-        rtm_cards_remaining: settings.rtm_enabled ? settings.rtm_cards_per_manager : 0,
-        squad: [],
-      },
-    };
-
-    const nextStandings = [
-      ...snapshot.standings,
-      {
-        member_id: newId,
-        team_name: teamName,
-        manager_name: displayName,
-        current_rank: nextManagers.length,
-        previous_rank: null,
-        gw_points: 0,
-        gw_by_number: { 1: 0, 2: 0 },
-        month_key: '2026-11',
-        total_points: 0,
-      },
-    ];
-
-    const nextSnap = {
-      ...snapshot,
-      managers: nextManagers,
-      auction: {
-        ...snapshot.auction,
-        managers: nextAuctionManagers,
-      },
-      standings: nextStandings,
-      past_rosters_by_member: {
-        ...snapshot.past_rosters_by_member,
-        [newId]: [],
-      },
-      squads_by_member: {
-        ...snapshot.squads_by_member,
-        [newId]: INITIAL_SQUAD,
-      },
-      purses_by_member: {
-        ...snapshot.purses_by_member,
-        [newId]: settings.starting_purse,
-      },
-      free_transfers_by_member: {
-        ...snapshot.free_transfers_by_member,
-        [newId]: settings.free_transfers_per_gw,
-      },
-    };
-
-    setActiveMemberId(newId);
-    void commitSharedSnapshot(nextSnap);
-  }
-
-  async function handleSaveSettings(updated) {
-    await commitSharedSnapshot({
-      ...snapshot,
-      settings: updated,
-    });
-  }
-
-  async function handleImportRoster(players) {
-    await commitSharedSnapshot({
-      ...snapshot,
-      past_rosters_by_member: {
-        ...snapshot.past_rosters_by_member,
-        [activeMemberId]: players,
-      },
-    });
-  }
-
-  async function handleConfirmRetentions(retainedIds, _releasedIds, nextPurse) {
-    const retainedSquadForAuction = currentPastRoster
-      .filter((p) => retainedIds.includes(p.player_id))
-      .map((p) => ({
-        player_id: p.player_id,
-        role: p.role,
-        ipl_team: p.ipl_team,
-        is_overseas: p.is_overseas,
-        price: p.previous_price,
-      }));
-
-    const existingMgr = snapshot.auction.managers[activeMemberId] ?? {
-      member_id: activeMemberId,
-      team_name: currentManager.team_name,
-      purse_remaining: nextPurse,
-      rtm_cards_remaining: settings.rtm_enabled ? settings.rtm_cards_per_manager : 0,
-      squad: [],
-    };
-
-    await commitSharedSnapshot({
-      ...snapshot,
-      purses_by_member: {
-        ...snapshot.purses_by_member,
-        [activeMemberId]: nextPurse,
-      },
-      auction: {
-        ...snapshot.auction,
-        managers: {
-          ...snapshot.auction.managers,
-          [activeMemberId]: {
-            ...existingMgr,
-            purse_remaining: nextPurse,
-            squad: retainedSquadForAuction,
-          },
-        },
-      },
-    });
-    setActiveTab('AUCTION');
-  }
-
-  function handlePlaceBid(amount) {
-    setAuctionError(null);
-    const res = applyBid(
-      snapshot.auction,
-      activeMemberId,
-      amount,
-      settings,
-      DEFAULT_BID_INCREMENTS
-    );
-    if (!res.ok) {
-      setAuctionError(res.error ?? 'Invalid bid');
-      return;
-    }
-    void commitSharedSnapshot(syncAuctionIntoSnapshot(snapshot, res.nextState));
-  }
-
-  function handleRtm(action) {
-    setAuctionError(null);
-    const res = handleRtmAction(snapshot.auction, action, settings);
-    if (!res.ok) {
-      setAuctionError(res.error ?? 'RTM action failed');
-      return;
-    }
-    void commitSharedSnapshot(syncAuctionIntoSnapshot(snapshot, res.nextState));
-  }
-
-  async function handleSaveLineup(payload) {
-    await commitSharedSnapshot({
-      ...snapshot,
-      squads_by_member: {
-        ...snapshot.squads_by_member,
-        [activeMemberId]: payload.players,
-      },
-    });
-  }
-
-  async function handleExecuteTransfer({ playerOutId, playerInId }) {
-    const outgoing = currentSquad.find((p) => p.player_id === playerOutId);
-    const incoming = INITIAL_MARKET_POOL.find((m) => m.player_id === playerInId);
-    if (!outgoing || !incoming) return;
-
-    const priceDiff = Number((incoming.market_price - outgoing.market_price).toFixed(2));
-    if (currentPurse - priceDiff < 0) return;
-
-    const nextPurse = Number((currentPurse - priceDiff).toFixed(2));
-    const nextSquad = currentSquad.map((p) =>
-      p.player_id === outgoing.player_id
-        ? {
-            player_id: incoming.player_id,
-            full_name: incoming.full_name,
-            role: incoming.role,
-            ipl_team: incoming.ipl_team,
-            is_overseas: incoming.is_overseas,
-            is_playing_xi: p.is_playing_xi,
-            bench_priority: p.bench_priority,
-            is_captain: false,
-            is_vice_captain: false,
-            gw_points: 0,
-            form_rating: incoming.form_rating,
-            ownership_pct: incoming.ownership_pct,
-            market_price: incoming.market_price,
-            next_fixture: 'Next GW',
-          }
-        : p
-    );
-
-    const existingAuctionMgr = snapshot.auction.managers[activeMemberId];
-    const nextAuctionManagers = existingAuctionMgr
-      ? {
-          ...snapshot.auction.managers,
-          [activeMemberId]: {
-            ...existingAuctionMgr,
-            purse_remaining: nextPurse,
-          },
-        }
-      : snapshot.auction.managers;
-
-    await commitSharedSnapshot({
-      ...snapshot,
-      purses_by_member: {
-        ...snapshot.purses_by_member,
-        [activeMemberId]: nextPurse,
-      },
-      free_transfers_by_member: {
-        ...snapshot.free_transfers_by_member,
-        [activeMemberId]: Math.max(0, currentFreeTransfers - 1),
-      },
-      squads_by_member: {
-        ...snapshot.squads_by_member,
-        [activeMemberId]: nextSquad,
-      },
-      auction: {
-        ...snapshot.auction,
-        managers: nextAuctionManagers,
-      },
-    });
-  }
-
-  const tabs = [
-    ['AUCTION', 'Live Auction'],
-    ['PITCH', 'My Pitch & Transfers'],
-    ['RETENTION', 'My Retention & Release'],
-    ['STANDINGS', 'League Standings'],
-    ['SETTINGS', 'League Settings'],
-  ];
-
-  return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-8">
-      <div className="mx-auto max-w-6xl space-y-5">
-        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
-          <div>
-            <h1 className="text-2xl font-black tracking-tight text-emerald-400">
-              FANTASY IPL — MULTIPLAYER AUCTION & FPL
-            </h1>
-            <p className="text-xs text-slate-400">
-              Personal Team Controls • Shared Auction & Standings • Sync: {syncStatus}
-            </p>
-          </div>
-          <nav className="flex flex-wrap gap-2">
-            {tabs.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setActiveTab(key)}
-                className={
-                  'rounded-lg px-3.5 py-2 text-xs font-bold transition ' +
-                  (activeTab === key
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800')
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-        </header>
-
-        <ManagerSessionBar
-          inviteCode={snapshot.invite_code}
-          managers={snapshot.managers}
-          activeMemberId={activeMemberId}
-          onSwitchManager={setActiveMemberId}
-          onAddManager={handleAddManager}
-        />
-
-        {activeTab === 'AUCTION' && (
-          <LiveAuctionRoom
-            state={snapshot.auction}
-            currentMemberId={activeMemberId}
-            isCommissioner={Boolean(currentManager?.is_commissioner)}
-            settings={settings}
-            increments={DEFAULT_BID_INCREMENTS}
-            errorMessage={auctionError}
-            onPlaceBid={handlePlaceBid}
-            onUseRtm={() => handleRtm({ type: 'USE_RTM', member_id: activeMemberId })}
-            onDeclineRtm={() => handleRtm({ type: 'DECLINE_RTM', member_id: activeMemberId })}
-            onCounterRaise={(amount) =>
-              handleRtm({
-                type: 'COUNTER_RAISE',
-                member_id: activeMemberId,
-                new_amount: amount,
-              })
-            }
-            onSkipCounter={() =>
-              handleRtm({ type: 'SKIP_COUNTER', member_id: activeMemberId })
-            }
-            onStartAcceleratedRound={() =>
-              void commitSharedSnapshot({
-                ...snapshot,
-                auction: {
-                  ...snapshot.auction,
-                  round_type: 'ACCELERATED',
-                  unsold_count: 0,
-                },
-              })
-            }
-          />
-        )}
-
-        {activeTab === 'PITCH' && (
-          <WeeklyPitchManager
-            teamName={currentManager?.team_name ?? 'My Team'}
-            gameweekNumber={2}
-            deadlineIso={new Date(Date.now() + 86400000).toISOString()}
-            purseRemaining={currentPurse}
-            freeTransfersAvailable={currentFreeTransfers}
-            settings={settings}
-            initialSquad={currentSquad}
-            marketPool={INITIAL_MARKET_POOL}
-            onSaveLineup={handleSaveLineup}
-            onExecuteTransfer={handleExecuteTransfer}
-          />
-        )}
-
-        {activeTab === 'RETENTION' && (
-          <RetentionWarRoom
-            teamName={currentManager?.team_name ?? 'My Team'}
-            settings={settings}
-            initialPastRoster={currentPastRoster}
-            availablePlayersCatalog={CATALOG_PLAYERS}
-            onImportRoster={handleImportRoster}
-            onConfirmRetentions={handleConfirmRetentions}
-          />
-        )}
-
-        {activeTab === 'STANDINGS' && (
-          <LeagueStandingsTable
-            rows={snapshot.standings}
-            availableGameweeks={[1, 2]}
-            onSelectTeam={(memberId) => {
-              setActiveMemberId(memberId);
-              setActiveTab('PITCH');
-            }}
-          />
-        )}
-
-        {activeTab === 'SETTINGS' && (
-          <LeagueSettingsConfigurator
-            initialSettings={settings}
-            onSave={handleSaveSettings}
-          />
-        )}
-      </div>
-    </main>
-  );
-}
+// ======================================
